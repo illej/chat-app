@@ -15,8 +15,6 @@ rm enet-1.3.15.tar.gz
 
 echo 'Building app'
 
-export LD_LIBRARY_PATH=/usr/local/lib
-gcc -pthread chat_server.c -o chat.srv -lenet
-gcc -pthread chat_client.c -o chat.cl -lenet
+./build.sh
 
 echo 'Done'
