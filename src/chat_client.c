@@ -1,9 +1,9 @@
 #include <stdio.h>
 #include <enet/enet.h>
 #include <stdbool.h>
+#include <signal.h>
 
 #ifdef __linux__
-#include <signal.h>
 #include <pthread.h>
 #include <string.h>
 #endif
@@ -87,20 +87,17 @@ stop_work (pthread_t thread)
 static void
 stop_work (HANDLE thread)
 {
+    printf ("stopping thread\n");
     WaitForSingleObject (thread, 0);
-    Close_handle (thread);
+    CloseHandle (thread);
 }
 #endif
 
-#ifdef __linux__
 static void
 signal_handler (int unused)
 {
     fclose (stdin);
 }
-#else
-// TODO: win32 signal handler
-#endif
 
 int
 main(int argc, char *argv[])
@@ -109,9 +106,7 @@ main(int argc, char *argv[])
     int port = -1;
     bool connected = false;
 
-#ifdef __linux__
     if (signal (SIGINT, signal_handler) != SIG_ERR &&
-#endif
         read_server_config(ip, &port) &&
         enet_initialize() == 0)
     {
@@ -143,6 +138,7 @@ main(int argc, char *argv[])
                     DWORD thread_id;
                     HANDLE thread = CreateThread(0, 0, enet_work, 0, 0, &thread_id);
 #endif
+
                     /* Block and read from input */
                     char line[255];
                     while (fgets(line, sizeof(line), stdin))

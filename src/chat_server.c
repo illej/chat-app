@@ -3,6 +3,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <signal.h>
+
+static bool running = false;
 
 static void
 htop(unsigned int ip4, unsigned short port, char *buf, size_t len)
@@ -12,10 +15,21 @@ htop(unsigned int ip4, unsigned short port, char *buf, size_t len)
              octets[0], octets[1], octets[2], octets[3], port);
 }
 
+static void
+signal_handler (int signal)
+{
+    if (signal == SIGINT)
+    {
+        printf ("sigint received\n");
+        running = false;
+    }
+}
+
 int
 main(int argc, char *argv[])
 {
-    if (enet_initialize() == 0)
+    if (signal (SIGINT, signal_handler) != SIG_ERR &&
+        enet_initialize() == 0)
     {
         ENetHost *server;
 
@@ -35,11 +49,12 @@ main(int argc, char *argv[])
                               0      /* assume any amount of outgoing bandwidth */);
         if (server)
         {
+            running = true;
             printf ("Starting chat server\n");
 
             ENetEvent event;
 
-            while (1)
+            while (running)
             {
                 if (enet_host_service (server, &event, 1000) > 0)
                 {
@@ -77,11 +92,15 @@ main(int argc, char *argv[])
                         {
                             printf ("%s disconnected.\n", (char *) event.peer->data);
 
+//                             free (event.peer->data);
                             event.peer->data = NULL;
                         } break;
                     }
                 }
             }
+
+            printf ("exiting\n");
+            // TODO: disconnect all peers
 
             enet_host_destroy(server);
         }
