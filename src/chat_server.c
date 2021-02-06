@@ -5,13 +5,31 @@
 #include <string.h>
 #include <signal.h>
 
+#define INET_ADDRSTRLEN 16
+
+enum pkt_type
+{
+    PKT_TYPE_INIT = 0,
+    PKT_TYPE_CONTENT,
+
+    PKT_TYPE_MAX,
+};
+
+struct packet
+{
+    enum pkt_type type;
+    bool valid;
+    char data[256];
+    size_t len;
+};
+
 static bool running = false;
 
 static void
 htop(unsigned int ip4, unsigned short port, char *buf, size_t len)
 {
     uint8_t *octets = (uint8_t *) &ip4;
-    snprintf(buf, len, "%u.%u.%u.%u:%u",
+    snprintf (buf, len, "%u.%u.%u.%u:%u",
              octets[0], octets[1], octets[2], octets[3], port);
 }
 
@@ -52,48 +70,100 @@ main(int argc, char *argv[])
             running = true;
             printf ("Starting chat server\n");
 
-            ENetEvent event;
-
             while (running)
             {
+                ENetEvent event;
                 if (enet_host_service (server, &event, 1000) > 0)
                 {
                     ENetPacket *packet;
-                    char buffer[255];
+                    char buf[256] = {0};
 
                     switch (event.type)
                     {
                         case ENET_EVENT_TYPE_CONNECT:
                         {
+                            char ip[INET_ADDRSTRLEN];
 
-                            char str[255];
+                            htop (event.peer->address.host, event.peer->address.port, ip, sizeof (ip));
 
-                            htop(event.peer->address.host, event.peer->address.port, str, sizeof(str));
+                            printf ("A new client connected [%s] id %u\n", ip, event.peer->incomingPeerID);
 
-                            printf ("A new client connected [%s].\n", str);
-
-                            event.peer->data = strdup(str);
+                            // event.peer->data = strdup (ip);
                         } break;
                         case ENET_EVENT_TYPE_RECEIVE:
                         {
-                            printf("[%s]: %s", (char *) event.peer->data, (char *) event.packet->data);
+                            char *ip = (char *) event.peer->data;
+                            uint8_t *data = (uint8_t *) event.packet->data;
+                            char str[256] = {0};
 
-                            snprintf(buffer, sizeof(buffer), "[%s]: %s",
-                                    (char *) event.peer->data,
-                                    (char *) event.packet->data);
+                            printf ("pkt> dataLength        : %zu\n", event.packet->dataLength);
+                            printf ("pkt> struct packet len : %zu\n", sizeof (struct packet));
 
-                            packet = enet_packet_create(buffer, strlen(buffer) + 1, ENET_PACKET_FLAG_RELIABLE);
-                            enet_host_broadcast(server, 0, packet);
-                            enet_host_flush(server);
+                            if (event.packet->dataLength == sizeof (struct packet))
+                            {
+                                struct packet *pkt = (struct packet *) data;
 
-                            enet_packet_destroy (event.packet);
+                                printf ("pkt> type  : %d\n", pkt->type);
+                                printf ("pkt> valid : %d\n", pkt->valid);
+                                printf ("pkt> data  : %s\n", pkt->data);
+                                printf ("pkt> len   : %zu\n", pkt->len);
+
+                                switch (pkt->type)
+                                {
+                                    case PKT_TYPE_INIT:
+                                    {
+                                        event.peer->data = strdup (pkt->data);
+                                    } break;
+                                    case PKT_TYPE_CONTENT:
+                                    {
+                                        snprintf (str, sizeof (str), "%s", pkt->data);
+                                    } break;
+                                    default:
+                                    {
+                                        printf ("Unkown packet type: %d\n", pkt->type);
+                                    } break;
+                                }
+                            }
+
+                            if (ip && ip[0] != '\0' &&
+                                str && str[0] != '\0')
+                            {
+                                printf("[%s]: %s (ping=%u)\n", ip, str, event.peer->roundTripTime);
+
+                                if (strncmp (str, "!num", 4) == 0)
+                                {
+                                    snprintf (buf, sizeof (buf), "[SERVER] connected peers: %zu/%zu",
+                                              server->connectedPeers, server->peerCount);
+                                }
+                                else
+                                {
+                                    snprintf (buf, sizeof (buf), "[%s]: %s", ip, str);
+                                }
+                            }
+
+                            if (buf[0] != '\0')
+                            {
+                                packet = enet_packet_create (buf, strlen (buf) + 1,
+                                                             ENET_PACKET_FLAG_RELIABLE);
+                                enet_host_broadcast (server, 0, packet);
+                                enet_host_flush (server);
+
+                                enet_packet_destroy (event.packet);
+                            }
                         } break;
                         case ENET_EVENT_TYPE_DISCONNECT:
                         {
-                            printf ("%s disconnected.\n", (char *) event.peer->data);
+                            if (event.peer->data)
+                            {
+                                printf ("%s disconnected.\n", (char *) event.peer->data);
 
-//                             free (event.peer->data);
-                            event.peer->data = NULL;
+                                free (event.peer->data);
+                                event.peer->data = NULL;
+                            }
+                            else
+                            {
+                                printf ("%s disconnected.\n", "???");
+                            }
                         } break;
                     }
                 }
