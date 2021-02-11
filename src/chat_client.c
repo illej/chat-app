@@ -24,6 +24,17 @@
  * */
 #define SERVER_CONFIG "server.cfg"
 
+#ifdef __linux__
+  #define WORK_RET   void *
+  #define WORK_PARAM void *
+  #define WORK_COND  true
+#else
+  #define WORK_RET   DWORD WINAPI
+  #define WORK_PARAM LPVOID
+  #define WORK_COND  (WaitForSingleObject (info->stop_event, 0) != WAIT_OBJECT_0)
+#endif
+
+
 enum pkt_type
 {
     PKT_TYPE_INIT = 0,
@@ -40,14 +51,6 @@ struct packet
     size_t len;
 };
 
-enum msg_type
-{
-    MSG_TYPE_INIT = 0,
-    MSG_TYPE_CONTENT,
-
-    MSG_TYPE_MAX,
-};
-
 struct thread_info
 {
 #ifdef __linux__
@@ -59,19 +62,16 @@ struct thread_info
 #endif
 };
 
+
 static ENetHost *client;
 
-#ifdef __linux__
-static void *
-enet_work (void *unused)
-#else
-static DWORD WINAPI
-enet_work (LPVOID lpParam)
-#endif
-{
-    struct thread_info *info = (struct thread_info *) lpParam;
 
-    while (WaitForSingleObject (info->stop_event, 0) != WAIT_OBJECT_0)
+static WORK_RET
+enet_work (WORK_PARAM param)
+{
+    struct thread_info *info = (struct thread_info *) param;
+
+    while (WORK_COND)
     {
         ENetEvent event;
         if (enet_host_service (client, &event, 100) > 0)
@@ -168,6 +168,13 @@ signal_handler (int unused)
     fclose (stdin);
 }
 
+static void
+usage (void)
+{
+	printf ("Usage:\n\n");
+	printf ("  chat.cl <name>\n\n");
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -175,6 +182,14 @@ main(int argc, char *argv[])
     int port = -1;
     bool connected = false;
     bool init = false;
+
+	if (argc != 2)
+	{
+		usage ();
+		return -1;
+	}
+
+	char *name = argv[1];
 
     // TODO: sigaction instead of signal?
     if (signal (SIGINT, signal_handler) != SIG_ERR &&
@@ -239,9 +254,9 @@ main(int argc, char *argv[])
 
                         if (!init)
                         {
-                            pkt.type = MSG_TYPE_INIT;
+                            pkt.type = PKT_TYPE_INIT;
                             // TODO: get username from argv
-                            snprintf (pkt.data, sizeof (pkt.data), "%s", "Elliot");
+                            snprintf (pkt.data, sizeof (pkt.data), "%s", name);
                             pkt.len = strlen (pkt.data) + 1;
                             pkt.valid = true;
 
@@ -249,7 +264,7 @@ main(int argc, char *argv[])
                         }
                         else if (line[0] != '\0')
                         {
-                            pkt.type = MSG_TYPE_CONTENT;
+                            pkt.type = PKT_TYPE_CONTENT;
                             snprintf (pkt.data, sizeof (pkt.data), "%s", line);
                             pkt.len = strlen (pkt.data) + 1;
                             pkt.valid = true;

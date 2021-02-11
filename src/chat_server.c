@@ -5,7 +5,9 @@
 #include <string.h>
 #include <signal.h>
 
+
 #define INET_ADDRSTRLEN 16
+
 
 enum pkt_type
 {
@@ -23,7 +25,9 @@ struct packet
     size_t len;
 };
 
+
 static volatile sig_atomic_t G__running = false;
+
 
 static void
 htop(unsigned int ip4, unsigned short port, char *buf, size_t len)
@@ -43,9 +47,24 @@ signal_handler (int signal)
     }
 }
 
+static void
+usage (void)
+{
+	printf ("Usage:\n\n");
+	printf ("  chat.srv <port>\n\n");
+}
+
 int
 main(int argc, char *argv[])
 {
+	if (argc != 2)
+	{
+		usage ();
+		return -1;
+	}
+
+	int port = atoi (argv[1]);
+
     if (signal (SIGINT, signal_handler) != SIG_ERR &&
         enet_initialize() == 0)
     {
@@ -59,7 +78,7 @@ main(int argc, char *argv[])
         address.host = ENET_HOST_ANY;
 
         /* Bind the server to port 1234. */
-        address.port = 1337;
+        address.port = port;
         server = enet_host_create (&address /* the address to bind the server host to */,
                              32      /* allow up to 32 clients and/or outgoing connections */,
                               2      /* allow up to 2 channels to be used, 0 and 1 */,
@@ -68,7 +87,7 @@ main(int argc, char *argv[])
         if (server)
         {
             G__running = true;
-            printf ("Starting chat server\n");
+            printf ("Starting chat server [%d]\n", port);
 
             while (G__running)
             {
