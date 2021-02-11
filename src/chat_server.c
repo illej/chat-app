@@ -23,7 +23,7 @@ struct packet
     size_t len;
 };
 
-static bool running = false;
+static volatile sig_atomic_t G__running = false;
 
 static void
 htop(unsigned int ip4, unsigned short port, char *buf, size_t len)
@@ -39,7 +39,7 @@ signal_handler (int signal)
     if (signal == SIGINT)
     {
         printf ("sigint received\n");
-        running = false;
+        G__running = false;
     }
 }
 
@@ -67,13 +67,13 @@ main(int argc, char *argv[])
                               0      /* assume any amount of outgoing bandwidth */);
         if (server)
         {
-            running = true;
+            G__running = true;
             printf ("Starting chat server\n");
 
-            while (running)
+            while (G__running)
             {
                 ENetEvent event;
-                if (enet_host_service (server, &event, 1000) > 0)
+                if (enet_host_service (server, &event, 100) > 0)
                 {
                     ENetPacket *packet;
                     char buf[256] = {0};

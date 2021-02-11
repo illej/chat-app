@@ -48,6 +48,17 @@ enum msg_type
     MSG_TYPE_MAX,
 };
 
+struct thread_info
+{
+#ifdef __linux__
+    pthread_t thread;
+#else
+    HANDLE thread;
+    HANDLE stop_event;
+    HANDLE read_event;
+#endif
+};
+
 static ENetHost *client;
 
 #ifdef __linux__
@@ -58,11 +69,12 @@ static DWORD WINAPI
 enet_work (LPVOID lpParam)
 #endif
 {
-    ENetEvent event;
+    struct thread_info *info = (struct thread_info *) lpParam;
 
-    while (true)
+    while (WaitForSingleObject (info->stop_event, 0) != WAIT_OBJECT_0)
     {
-        if (enet_host_service (client, &event, 1000) > 0)
+        ENetEvent event;
+        if (enet_host_service (client, &event, 100) > 0)
         {
             switch (event.type)
             {
@@ -74,7 +86,7 @@ enet_work (LPVOID lpParam)
                 } break;
                 case ENET_EVENT_TYPE_DISCONNECT:
                 {
-                    printf ("Disconnected from server\n");
+                    printf ("Disconnected by server\n");
                 } break;
             }
         }
@@ -108,11 +120,11 @@ read_server_config (char *ip4, int *port)
 
 #ifdef __linux__
 static void
-stop_work (pthread_t thread)
+stop_work (struct thread_info *info)
 {
-    if (pthread_kill (thread, 0) == 0 &&
-        pthread_cancel (thread) == 0 &&
-        pthread_join (thread, NULL) == 0)
+    if (pthread_kill (info->thread, 0) == 0 &&
+        pthread_cancel (info->thread) == 0 &&
+        pthread_join (info->thread, NULL) == 0)
     {
         /* all ok */
     }
@@ -123,11 +135,27 @@ stop_work (pthread_t thread)
 }
 #else
 static void
-stop_work (HANDLE thread)
+stop_work (struct thread_info *info)
 {
     printf ("stopping thread\n");
-    WaitForSingleObject (thread, 0);
-    CloseHandle (thread);
+
+    if (SetEvent (info->stop_event) != 0)
+    {
+        if (WaitForSingleObject (info->thread, 1000) != WAIT_OBJECT_0)
+        {
+            printf ("thread took too long to exit. Killing\n");
+            TerminateThread (info->thread, 0);
+        }
+
+        printf ("thread finished. closing handles\n");
+
+        CloseHandle (info->thread);
+        CloseHandle (info->stop_event);
+    }
+    else
+    {
+        printf ("Failed to set event\n");
+    }
 }
 #endif
 
@@ -157,7 +185,7 @@ main(int argc, char *argv[])
         client = enet_host_create (NULL, 1, 2, 0, 0);
         if (client)
         {
-            printf ("Starting chat client. CTRL-D or CTRL-C to quit.\n");
+            printf ("Starting chat client. CTRL-D, CTRL-C, or \"!quit\" to quit.\n");
 
             ENetAddress address;
             ENetEvent event;
@@ -176,13 +204,16 @@ main(int argc, char *argv[])
                     printf ("Connection to [%s:%d] succeeded.\n", ip, port);
 
                     /* Create a worker thread to handle incoming server messages */
+                    struct thread_info info = {0};
+
 #ifdef __linux__
-                    pthread_t thread;
-                    pthread_create(&thread, NULL, enet_work, NULL);
+                    pthread_create(&info.thread, NULL, enet_work, NULL);
 #else
-                    DWORD thread_id;
-                    HANDLE thread = CreateThread(0, 0, enet_work, 0, 0, &thread_id);
+                    DWORD dummy;
+                    info.thread = CreateThread(0, 0, enet_work, &info, 0, &dummy);
+                    info.stop_event = CreateEventA (NULL, true, false, "Stop event");
 #endif
+
                     // TODO: send INIT packet here
 
                     /* Block and read from input */
@@ -191,7 +222,7 @@ main(int argc, char *argv[])
                     {
                         struct packet pkt = {0};
 
-                        if (strncmp (line, "quit", 4) == 0)
+                        if (strncmp (line, "!quit", 5) == 0)
                         {
                             break;
                         }
@@ -230,19 +261,21 @@ main(int argc, char *argv[])
                                                                      sizeof (struct packet),
                                                                      ENET_PACKET_FLAG_RELIABLE);
                             enet_peer_send (peer, 0, packet);
-                            enet_host_flush (client);
                         }
 
                         memset (line, 0, sizeof (line));
                     }
 
-                    // TODO: maybe stop the worker thread up here
+                    /* We've exited out of the I/O read loop
+                     * so clean up and quit */
+                    stop_work (&info);
 
-                    /* Request disconnect from server */
+                    printf ("sending disconnect to server\n");
+
                     enet_peer_disconnect (peer, 0);
 
-                    /* Allow up to 3 seconds for the disconnect to succeed
-                     * and drop any received packets. */
+                    /* Allow up to 3 seconds for the disconnect
+                     * to succeed and drop any received packets. */
                     while (connected && enet_host_service (client, &event, 3000) > 0)
                     {
                         switch (event.type)
@@ -251,6 +284,7 @@ main(int argc, char *argv[])
                                 enet_packet_destroy (event.packet);
                                 break;
                             case ENET_EVENT_TYPE_DISCONNECT:
+                                printf ("disconnect successful\n");
                                 connected = false;
                                 break;
                         }
@@ -258,12 +292,12 @@ main(int argc, char *argv[])
 
                     if (connected)
                     {
-                        /* We've arrived here, so the disconnect attempt didn't
-                         * succeed yet.  Force the connection down. */
+                        printf ("still connected - killing connection\n");
+
+                        /* If we've arrived here  the disconnect attempt
+                         * didn't succeed yet.  Force the connection down. */
                         enet_peer_reset (peer);
                     }
-
-                    stop_work (thread);
                 }
                 else
                 {
