@@ -20,7 +20,6 @@ enum pkt_type
 struct packet
 {
     enum pkt_type type;
-    bool valid;
     char data[256];
     size_t len;
 };
@@ -50,20 +49,20 @@ signal_handler (int signal)
 static void
 usage (void)
 {
-	printf ("Usage:\n\n");
-	printf ("  chat.srv <port>\n\n");
+    printf ("Usage:\n\n");
+    printf ("  chat.srv <port>\n\n");
 }
 
 int
 main(int argc, char *argv[])
 {
-	if (argc != 2)
-	{
-		usage ();
-		return -1;
-	}
+    if (argc != 2)
+    {
+        usage ();
+        return -1;
+    }
 
-	int port = atoi (argv[1]);
+    int port = atoi (argv[1]);
 
     if (signal (SIGINT, signal_handler) != SIG_ERR &&
         enet_initialize() == 0)
@@ -79,11 +78,11 @@ main(int argc, char *argv[])
 
         /* Bind the server to port 1234. */
         address.port = port;
-        server = enet_host_create (&address /* the address to bind the server host to */,
-                             32      /* allow up to 32 clients and/or outgoing connections */,
-                              2      /* allow up to 2 channels to be used, 0 and 1 */,
-                              0      /* assume any amount of incoming bandwidth */,
-                              0      /* assume any amount of outgoing bandwidth */);
+        server = enet_host_create (&address, /* the address to bind the server host to */
+                                   32,       /* allow up to 32 clients and/or outgoing connections */
+                                   2,        /* allow up to 2 channels to be used, 0 and 1 */
+                                   0,        /* assume any amount of incoming bandwidth */
+                                   0);       /* assume any amount of outgoing bandwidth */
         if (server)
         {
             G__running = true;
@@ -123,7 +122,6 @@ main(int argc, char *argv[])
                                 struct packet *pkt = (struct packet *) data;
 
                                 printf ("pkt> type  : %d\n", pkt->type);
-                                printf ("pkt> valid : %d\n", pkt->valid);
                                 printf ("pkt> data  : %s\n", pkt->data);
                                 printf ("pkt> len   : %zu\n", pkt->len);
 
@@ -149,7 +147,7 @@ main(int argc, char *argv[])
                             {
                                 printf("[%s]: %s (ping=%u)\n", ip, str, event.peer->roundTripTime);
 
-                                if (strncmp (str, "!num", 4) == 0)
+                                if (strncmp (str, "!who", 4) == 0)
                                 {
                                     snprintf (buf, sizeof (buf), "[SERVER] connected peers: %zu/%zu",
                                               server->connectedPeers, server->peerCount);

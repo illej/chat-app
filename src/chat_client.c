@@ -46,7 +46,6 @@ enum pkt_type
 struct packet
 {
     enum pkt_type type;
-    bool valid;
     char data[256];
     size_t len;
 };
@@ -160,6 +159,20 @@ stop_work (struct thread_info *info)
 #endif
 
 static void
+send_init_packet (ENetPeer *peer, char *name)
+{
+    struct packet pkt = {0};
+
+    pkt.type = PKT_TYPE_INIT;
+    snprintf (pkt.data, sizeof (pkt.data), "%s", name);
+
+    ENetPacket *packet = enet_packet_create (&pkt,
+                                             sizeof (struct packet),
+                                             ENET_PACKET_FLAG_RELIABLE);
+    enet_peer_send (peer, 0, packet);
+}
+
+static void
 signal_handler (int unused)
 {
     /* TODO: set a global variable (volatile?) here
@@ -171,8 +184,8 @@ signal_handler (int unused)
 static void
 usage (void)
 {
-	printf ("Usage:\n\n");
-	printf ("  chat.cl <name>\n\n");
+    printf ("Usage:\n\n");
+    printf ("  chat.cl <name>\n\n");
 }
 
 int
@@ -181,37 +194,33 @@ main(int argc, char *argv[])
     char ip[255] = {0};
     int port = -1;
     bool connected = false;
-    bool init = false;
 
-	if (argc != 2)
-	{
-		usage ();
-		return -1;
-	}
+    if (argc != 2)
+    {
+        usage ();
+        return -1;
+    }
 
-	char *name = argv[1];
+    char *name = argv[1];
 
     // TODO: sigaction instead of signal?
     if (signal (SIGINT, signal_handler) != SIG_ERR &&
         read_server_config(ip, &port) &&
         enet_initialize() == 0)
     {
-        // TODO: defines for the lib function params
         client = enet_host_create (NULL, 1, 2, 0, 0);
         if (client)
         {
             printf ("Starting chat client. CTRL-D, CTRL-C, or \"!quit\" to quit.\n");
 
             ENetAddress address;
-            ENetEvent event;
-            ENetPeer *peer;
-
             enet_address_set_host (&address, ip);
             address.port = port;
 
-            peer = enet_host_connect (client, &address, 2, 0);
+            ENetPeer *peer = enet_host_connect (client, &address, 2, 0);
             if (peer)
             {
+                ENetEvent event;
                 if (enet_host_service (client, &event, 5000) > 0 &&
                     event.type == ENET_EVENT_TYPE_CONNECT)
                 {
@@ -229,7 +238,7 @@ main(int argc, char *argv[])
                     info.stop_event = CreateEventA (NULL, true, false, "Stop event");
 #endif
 
-                    // TODO: send INIT packet here
+                    send_init_packet (peer, name);
 
                     /* Block and read from input */
                     char line[255];
@@ -242,36 +251,19 @@ main(int argc, char *argv[])
                             break;
                         }
 
-                        /* trim trailing newline */
                         if (line[0] != '\0')
                         {
+                            /* trim trailing newline */
                             size_t last = strlen (line) - 1;
                             if (line[last] == '\n')
                             {
                                 line[last] = '\0';
                             }
-                        }
 
-                        if (!init)
-                        {
-                            pkt.type = PKT_TYPE_INIT;
-                            // TODO: get username from argv
-                            snprintf (pkt.data, sizeof (pkt.data), "%s", name);
-                            pkt.len = strlen (pkt.data) + 1;
-                            pkt.valid = true;
-
-                            init = true;
-                        }
-                        else if (line[0] != '\0')
-                        {
                             pkt.type = PKT_TYPE_CONTENT;
                             snprintf (pkt.data, sizeof (pkt.data), "%s", line);
                             pkt.len = strlen (pkt.data) + 1;
-                            pkt.valid = true;
-                        }
 
-                        if (pkt.valid)
-                        {
                             ENetPacket *packet = enet_packet_create (&pkt,
                                                                      sizeof (struct packet),
                                                                      ENET_PACKET_FLAG_RELIABLE);
@@ -286,7 +278,6 @@ main(int argc, char *argv[])
                     stop_work (&info);
 
                     printf ("sending disconnect to server\n");
-
                     enet_peer_disconnect (peer, 0);
 
                     /* Allow up to 3 seconds for the disconnect
@@ -324,7 +315,6 @@ main(int argc, char *argv[])
             {
                 printf("No available peers for initiating an ENet connection.\n");
             }
-
             enet_host_destroy(client);
         }
         else
@@ -332,7 +322,6 @@ main(int argc, char *argv[])
             printf ("An error occurred while trying to create an ENet client host.\n");
         }
     }
-
     enet_deinitialize();
 
     return 0;
