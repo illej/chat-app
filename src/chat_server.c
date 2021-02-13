@@ -91,11 +91,13 @@ main(int argc, char *argv[])
             while (G__running)
             {
                 ENetEvent event;
-                if (enet_host_service (server, &event, 100) > 0)
+                int ret = enet_host_service (server, &event, 100);
+                if (ret > 0)
                 {
                     ENetPacket *packet;
                     char buf[256] = {0};
 
+                    printf ("event type: %d\n", event.type);
                     switch (event.type)
                     {
                         case ENET_EVENT_TYPE_CONNECT:
@@ -174,15 +176,23 @@ main(int argc, char *argv[])
                             {
                                 printf ("%s disconnected.\n", (char *) event.peer->data);
 
-                                free (event.peer->data);
-                                event.peer->data = NULL;
+                                // free (event.peer->data);
+                                // event.peer->data = NULL;
                             }
                             else
                             {
                                 printf ("%s disconnected.\n", "???");
                             }
                         } break;
+                        default:
+                        {
+                            printf ("unknown event type: %d\n", event.type);
+                        } break;
                     }
+                }
+                else if (ret < 0)
+                {
+                    printf ("An error occured trying to pump messages\n");
                 }
             }
 

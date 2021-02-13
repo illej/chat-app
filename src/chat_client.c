@@ -259,7 +259,10 @@ main(int argc, char *argv[])
                             {
                                 line[last] = '\0';
                             }
+                        }
 
+                        if (line[0] != '\0')
+                        {
                             pkt.type = PKT_TYPE_CONTENT;
                             snprintf (pkt.data, sizeof (pkt.data), "%s", line);
                             pkt.len = strlen (pkt.data) + 1;

@@ -1,5 +1,7 @@
 @echo off
 
+:: OLD
+
 set ext_include_dir=external/include
 set ext_lib_dir=external/lib
 

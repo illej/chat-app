@@ -54,3 +54,6 @@ dkms.conf
 # project specific
 external/
 build/
+.last_modified_file
+.enet_build_failure
+enet*
