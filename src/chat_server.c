@@ -28,12 +28,13 @@ struct packet
 static volatile sig_atomic_t G__running = false;
 
 
-static void
+static char *
 htop(unsigned int ip4, unsigned short port, char *buf, size_t len)
 {
     uint8_t *octets = (uint8_t *) &ip4;
     snprintf (buf, len, "%u.%u.%u.%u:%u",
              octets[0], octets[1], octets[2], octets[3], port);
+    return buf;
 }
 
 static void
@@ -92,12 +93,13 @@ main(int argc, char *argv[])
             {
                 ENetEvent event;
                 int ret = enet_host_service (server, &event, 100);
+                // printf ("service ret: %d\n", ret);
                 if (ret > 0)
                 {
                     ENetPacket *packet;
                     char buf[256] = {0};
 
-                    printf ("event type: %d\n", event.type);
+                    printf ("event type: %d channel: %u\n", event.type, event.channelID);
                     switch (event.type)
                     {
                         case ENET_EVENT_TYPE_CONNECT:
@@ -106,7 +108,8 @@ main(int argc, char *argv[])
 
                             htop (event.peer->address.host, event.peer->address.port, ip, sizeof (ip));
 
-                            printf ("A new client connected [%s] id %u\n", ip, event.peer->incomingPeerID);
+                            printf ("A new client connected [%s] inid=%u outid=%d \n",
+                                    ip, event.peer->incomingPeerID, event.peer->outgoingPeerID);
 
                             // event.peer->data = strdup (ip);
                         } break;
@@ -116,16 +119,16 @@ main(int argc, char *argv[])
                             uint8_t *data = (uint8_t *) event.packet->data;
                             char str[256] = {0};
 
-                            printf ("pkt> dataLength        : %zu\n", event.packet->dataLength);
-                            printf ("pkt> struct packet len : %zu\n", sizeof (struct packet));
+                            // printf ("pkt> dataLength        : %zu\n", event.packet->dataLength);
+                            // printf ("pkt> struct packet len : %zu\n", sizeof (struct packet));
 
                             if (event.packet->dataLength == sizeof (struct packet))
                             {
                                 struct packet *pkt = (struct packet *) data;
 
-                                printf ("pkt> type  : %d\n", pkt->type);
-                                printf ("pkt> data  : %s\n", pkt->data);
-                                printf ("pkt> len   : %zu\n", pkt->len);
+                                // printf ("pkt> type  : %d\n", pkt->type);
+                                // printf ("pkt> data  : %s\n", pkt->data);
+                                // printf ("pkt> len   : %zu\n", pkt->len);
 
                                 switch (pkt->type)
                                 {
@@ -164,7 +167,7 @@ main(int argc, char *argv[])
                             {
                                 packet = enet_packet_create (buf, strlen (buf) + 1,
                                                              ENET_PACKET_FLAG_RELIABLE);
-                                enet_host_broadcast (server, 0, packet);
+                                enet_host_broadcast (server, 1, packet);
                                 enet_host_flush (server);
 
                                 enet_packet_destroy (event.packet);
@@ -172,12 +175,90 @@ main(int argc, char *argv[])
                         } break;
                         case ENET_EVENT_TYPE_DISCONNECT:
                         {
+#if 0
+typedef struct _ENetPeer
+{
+   ENetListNode  dispatchList;
+   struct _ENetHost * host;
+   enet_uint16   outgoingPeerID;
+   enet_uint16   incomingPeerID;
+   enet_uint32   connectID;
+   enet_uint8    outgoingSessionID;
+   enet_uint8    incomingSessionID;
+   ENetAddress   address;            /**< Internet address of the peer */
+   void *        data;               /**< Application private data, may be freely modified */
+   ENetPeerState state;
+   ENetChannel * channels;
+   size_t        channelCount;       /**< Number of channels allocated for communication with peer */
+   enet_uint32   incomingBandwidth;  /**< Downstream bandwidth of the client in bytes/second */
+   enet_uint32   outgoingBandwidth;  /**< Upstream bandwidth of the client in bytes/second */
+   enet_uint32   incomingBandwidthThrottleEpoch;
+   enet_uint32   outgoingBandwidthThrottleEpoch;
+   enet_uint32   incomingDataTotal;
+   enet_uint32   outgoingDataTotal;
+   enet_uint32   lastSendTime;
+   enet_uint32   lastReceiveTime;
+   enet_uint32   nextTimeout;
+   enet_uint32   earliestTimeout;
+   enet_uint32   packetLossEpoch;
+   enet_uint32   packetsSent;
+   enet_uint32   packetsLost;
+   enet_uint32   packetLoss;          /**< mean packet loss of reliable packets as a ratio with respect to the constant ENET_PEER_PACKET_LOSS_SCALE */
+   enet_uint32   packetLossVariance;
+   enet_uint32   packetThrottle;
+   enet_uint32   packetThrottleLimit;
+   enet_uint32   packetThrottleCounter;
+   enet_uint32   packetThrottleEpoch;
+   enet_uint32   packetThrottleAcceleration;
+   enet_uint32   packetThrottleDeceleration;
+   enet_uint32   packetThrottleInterval;
+   enet_uint32   pingInterval;
+   enet_uint32   timeoutLimit;
+   enet_uint32   timeoutMinimum;
+   enet_uint32   timeoutMaximum;
+   enet_uint32   lastRoundTripTime;
+   enet_uint32   lowestRoundTripTime;
+   enet_uint32   lastRoundTripTimeVariance;
+   enet_uint32   highestRoundTripTimeVariance;
+   enet_uint32   roundTripTime;            /**< mean round trip time (RTT), in milliseconds, between sending a reliable packet and receiving its acknowledgement */
+   enet_uint32   roundTripTimeVariance;
+   enet_uint32   mtu;
+   enet_uint32   windowSize;
+   enet_uint32   reliableDataInTransit;
+   enet_uint16   outgoingReliableSequenceNumber;
+   ENetList      acknowledgements;
+   ENetList      sentReliableCommands;
+   ENetList      sentUnreliableCommands;
+   ENetList      outgoingReliableCommands;
+   ENetList      outgoingUnreliableCommands;
+   ENetList      dispatchedCommands;
+   enet_uint16   flags;
+   enet_uint8    roundTripTimeRemainder;
+   enet_uint8    roundTripTimeVarianceRemainder;
+   enet_uint16   incomingUnsequencedGroup;
+   enet_uint16   outgoingUnsequencedGroup;
+   enet_uint32   unsequencedWindow [ENET_PEER_UNSEQUENCED_WINDOW_SIZE / 32];
+   enet_uint32   eventData;
+   size_t        totalWaitingData;
+} ENetPeer;
+
+#endif
                             if (event.peer->data)
                             {
-                                printf ("%s disconnected.\n", (char *) event.peer->data);
+                                char buf[INET_ADDRSTRLEN];
 
-                                // free (event.peer->data);
-                                // event.peer->data = NULL;
+                                printf ("%s disconnected (ip=%s, state=%d, inid=%u outid=%u connid=%u insess=%u outsess=%u).\n",
+                                        (char *) event.peer->data,
+                                        htop (event.peer->address.host, event.peer->address.port, buf, sizeof (buf)),
+                                        event.peer->state,
+                                        event.peer->incomingPeerID,
+                                        event.peer->outgoingPeerID,
+                                        event.peer->connectID,
+                                        event.peer->incomingSessionID,
+                                        event.peer->outgoingSessionID);
+
+                                free (event.peer->data);
+                                event.peer->data = NULL;
                             }
                             else
                             {

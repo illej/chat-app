@@ -12,16 +12,15 @@ if "%selfWrapped%"=="" (
 )
 
 set arg1=%1
-set enet=enet-1.3.15
+set enet=enet-1.3.17
 set enet_tar=%enet%.tar.gz
 set enet_dll=enet64.dll
 set enet_lib=enet64.lib
 set crash_file=.enet_build_failure
 
-set need=false
-call :check_enet_build need
-
-if "%need%"=="true" (
+set need_build=false
+call :check_enet_build need_build
+if "%need_build%"=="true" (
     if not exist %enet% call :dl
     call :enet_build
 )
@@ -36,8 +35,8 @@ set link_flags=-link /LIBPATH:%ext_lib_dir%
 :: set libs=ws2_32.lib winmm.lib enet64.lib
 set libs=%enet_lib%
 
-cl %compiler_flags% -Fe: server.exe src\chat_server.c  %link_flags% %libs% || goto :bad
-cl %compiler_flags% -Fe: client.exe src\chat_client.c  %link_flags% %libs% || goto :bad
+cl %compiler_flags% -Fe: server.exe src\chat_server.c %link_flags% %libs% || goto :bad
+cl %compiler_flags% -Fe: client.exe src\chat_client.c %link_flags% %libs% || goto :bad
 
 echo Build finished
 goto :end
@@ -46,9 +45,22 @@ goto :end
 ::functions
 ::
 :check_enet_build
-    if not exist %enet_dll% set %1=true
-    if "%arg1%"=="-f" set %1=true
-    if exist %crash_file% set %1=true
+    if not exist %enet_dll% (
+        set %1=true
+        goto :eof
+    )
+    if not exist %enet% (
+        set %1=true
+        goto :eof
+    )
+    if "%arg1%"=="-f" (
+        set %1=true
+        goto :eof
+    )
+    if exist %crash_file% (
+        set %1=true
+        goto :eof
+    )
 
     set modified=false
     call :was_enet_modified modified
@@ -89,7 +101,7 @@ goto :end
 :dl
     echo Downloading %enet%
 
-    set url=http://enet.bespin.org/download/enet-1.3.15.tar.gz
+    set url=http://enet.bespin.org/download/%enet_tar%
     set opts=--show-error --progress-bar
 
     curl %opts% %url% -o %enet_tar% || call :bad
@@ -105,15 +117,15 @@ goto :end
 
     robocopy .\%enet%\include\ .\external\include\ /E > nul || call :bad
 
+    echo Download finished
     goto :eof
 
 :enet_build
-    if not exist %enet% call :dl
     echo Building %enet%
 
     echo %time% > %crash_file%
 
-    set enet_cflags=-W3 -wd4477 -wd4996 -nologo -DENET_DLL -DENET_DEBUG -I include /Fe: %enet_dll%
+    set enet_cflags=-WX -W3 -wd4477 -wd4996 -nologo -DENET_DLL -DENET_DEBUG -I include /Fe: %enet_dll%
     set enet_lflags=/LD -link ws2_32.lib winmm.lib
     set enet_src=^
       callbacks.c^
@@ -133,6 +145,7 @@ goto :end
     popd
 
     del %crash_file%
+    echo Build finished
 
     goto :eof
 

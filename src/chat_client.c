@@ -22,7 +22,11 @@
  *
  *       non-blocking read()? and go full immediate-mode?
  * */
-#define SERVER_CONFIG "server.cfg"
+#define SERVER_CONFIG           "server.cfg"
+#define OUTGOING_CONNECTION_MAX 1
+#define NUM_CHANNELS            2
+#define BANDWIDTH_IN            0 /* 0 for unlimited - default */
+#define BANDWIDTH_OUT           0 /* 0 for unlimited - default */
 
 #ifdef __linux__
   #define WORK_RET   void *
@@ -159,7 +163,7 @@ stop_work (struct thread_info *info)
 #endif
 
 static void
-send_init_packet (ENetPeer *peer, char *name)
+send_init_packet (ENetPeer *peer, char *name, int channel)
 {
     struct packet pkt = {0};
 
@@ -169,7 +173,7 @@ send_init_packet (ENetPeer *peer, char *name)
     ENetPacket *packet = enet_packet_create (&pkt,
                                              sizeof (struct packet),
                                              ENET_PACKET_FLAG_RELIABLE);
-    enet_peer_send (peer, 0, packet);
+    enet_peer_send (peer, channel, packet);
 }
 
 static void
@@ -208,7 +212,8 @@ main(int argc, char *argv[])
         read_server_config(ip, &port) &&
         enet_initialize() == 0)
     {
-        client = enet_host_create (NULL, 1, 2, 0, 0);
+        client = enet_host_create (NULL, OUTGOING_CONNECTION_MAX, NUM_CHANNELS,
+                                   BANDWIDTH_IN, BANDWIDTH_OUT);
         if (client)
         {
             printf ("Starting chat client. CTRL-D, CTRL-C, or \"!quit\" to quit.\n");
@@ -217,7 +222,7 @@ main(int argc, char *argv[])
             enet_address_set_host (&address, ip);
             address.port = port;
 
-            ENetPeer *peer = enet_host_connect (client, &address, 2, 0);
+            ENetPeer *peer = enet_host_connect (client, &address, NUM_CHANNELS, 0);
             if (peer)
             {
                 ENetEvent event;
@@ -238,7 +243,8 @@ main(int argc, char *argv[])
                     info.stop_event = CreateEventA (NULL, true, false, "Stop event");
 #endif
 
-                    send_init_packet (peer, name);
+                    int send_channel = 0;
+                    send_init_packet (peer, name, send_channel);
 
                     /* Block and read from input */
                     char line[255];
@@ -270,7 +276,7 @@ main(int argc, char *argv[])
                             ENetPacket *packet = enet_packet_create (&pkt,
                                                                      sizeof (struct packet),
                                                                      ENET_PACKET_FLAG_RELIABLE);
-                            enet_peer_send (peer, 0, packet);
+                            enet_peer_send (peer, send_channel, packet);
                         }
 
                         memset (line, 0, sizeof (line));
@@ -281,7 +287,7 @@ main(int argc, char *argv[])
                     stop_work (&info);
 
                     printf ("sending disconnect to server\n");
-                    enet_peer_disconnect (peer, 0);
+                    enet_peer_disconnect_later (peer, 0);
 
                     /* Allow up to 3 seconds for the disconnect
                      * to succeed and drop any received packets. */
