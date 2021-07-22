@@ -42,7 +42,6 @@ signal_handler (int signal)
 {
     if (signal == SIGINT)
     {
-        printf ("sigint received\n");
         G__running = false;
     }
 }
@@ -99,7 +98,7 @@ main(int argc, char *argv[])
                     ENetPacket *packet;
                     char buf[256] = {0};
 
-                    printf ("event type: %d channel: %u\n", event.type, event.channelID);
+                    // printf ("event type: %d channel: %u\n", event.type, event.channelID);
                     switch (event.type)
                     {
                         case ENET_EVENT_TYPE_CONNECT:
@@ -242,12 +241,26 @@ typedef struct _ENetPeer
    size_t        totalWaitingData;
 } ENetPeer;
 
+typedef enum _ENetPeerState
+{
+   ENET_PEER_STATE_DISCONNECTED                = 0,
+   ENET_PEER_STATE_CONNECTING                  = 1,
+   ENET_PEER_STATE_ACKNOWLEDGING_CONNECT       = 2,
+   ENET_PEER_STATE_CONNECTION_PENDING          = 3,
+   ENET_PEER_STATE_CONNECTION_SUCCEEDED        = 4,
+   ENET_PEER_STATE_CONNECTED                   = 5,
+   ENET_PEER_STATE_DISCONNECT_LATER            = 6,
+   ENET_PEER_STATE_DISCONNECTING               = 7,
+   ENET_PEER_STATE_ACKNOWLEDGING_DISCONNECT    = 8,
+   ENET_PEER_STATE_ZOMBIE                      = 9
+} ENetPeerState;
+
 #endif
                             if (event.peer->data)
                             {
                                 char buf[INET_ADDRSTRLEN];
 
-                                printf ("%s disconnected (ip=%s, state=%d, inid=%u outid=%u connid=%u insess=%u outsess=%u).\n",
+                                printf ("%s disconnected (ip=%s, state=%d, inpeerid=%u outpeerid=%u connid=%u insess=%u outsess=%u).\n",
                                         (char *) event.peer->data,
                                         htop (event.peer->address.host, event.peer->address.port, buf, sizeof (buf)),
                                         event.peer->state,
