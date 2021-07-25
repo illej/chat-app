@@ -4,26 +4,9 @@
 #include <stdint.h>
 #include <string.h>
 #include <signal.h>
-
+#include "chat.h"
 
 #define INET_ADDRSTRLEN 16
-
-
-enum pkt_type
-{
-    PKT_TYPE_INIT = 0,
-    PKT_TYPE_CONTENT,
-
-    PKT_TYPE_MAX,
-};
-
-struct packet
-{
-    enum pkt_type type;
-    char data[256];
-    size_t len;
-};
-
 
 static volatile sig_atomic_t G__running = false;
 
@@ -50,7 +33,7 @@ static void
 usage (void)
 {
     printf ("Usage:\n\n");
-    printf ("  chat.srv <port>\n\n");
+    printf ("  server <port>\n\n");
 }
 
 int
@@ -123,25 +106,25 @@ main(int argc, char *argv[])
 
                             if (event.packet->dataLength == sizeof (struct packet))
                             {
-                                struct packet *pkt = (struct packet *) data;
+                                struct packet *p = (struct packet *) data;
 
                                 // printf ("pkt> type  : %d\n", pkt->type);
                                 // printf ("pkt> data  : %s\n", pkt->data);
                                 // printf ("pkt> len   : %zu\n", pkt->len);
 
-                                switch (pkt->type)
+                                switch (p->type)
                                 {
-                                    case PKT_TYPE_INIT:
+                                    case PACKET_TYPE_INIT:
                                     {
-                                        event.peer->data = strdup (pkt->data);
+                                        event.peer->data = strdup (p->data);
                                     } break;
-                                    case PKT_TYPE_CONTENT:
+                                    case PACKET_TYPE_CONTENT:
                                     {
-                                        snprintf (str, sizeof (str), "%s", pkt->data);
+                                        snprintf (str, sizeof (str), "%s", p->data);
                                     } break;
                                     default:
                                     {
-                                        printf ("Unkown packet type: %d\n", pkt->type);
+                                        printf ("Unkown packet type: %d\n", p->type);
                                     } break;
                                 }
                             }
