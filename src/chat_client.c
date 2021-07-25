@@ -92,7 +92,11 @@ enqueue (struct queue *queue, char *data)
     snprintf (entry->data, sizeof (entry->data), "%s", data);
     ++queue->completion_goal;
 
+#ifdef __linux__
+    asm volatile ("" ::: "memory");
+#else
     _WriteBarrier ();
+#endif
 
     queue->next_entry_to_write = new_next_entry_to_write;
 }
@@ -106,15 +110,25 @@ dequeue (struct queue *queue, char *buf, size_t len)
 
     if (original_next_entry_to_read != queue->next_entry_to_write)
     {
+#ifdef __linux__
+        uint32_t index = __sync_val_compare_and_swap (&queue->next_entry_to_read,
+                                                      original_next_entry_to_read,
+                                                      new_next_entry_to_read);
+#else
         uint32_t index = InterlockedCompareExchange ((LONG volatile *) &queue->next_entry_to_read,
                                                     new_next_entry_to_read,
                                                     original_next_entry_to_read);
+#endif
         if (index == original_next_entry_to_read)
         {
             struct entry *entry = &queue->entries[index];
             snprintf (buf, len, "%s", entry->data);
 
+#ifdef __linux__
+            __sync_fetch_and_add (&queue->completion_count, 1);
+#else
             InterlockedIncrement ((LONG volatile *) &queue->completion_count);
+#endif
             ok = true;
         }
     }
