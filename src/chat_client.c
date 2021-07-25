@@ -38,6 +38,7 @@
   #define WORK_COND  (WaitForSingleObject (info->stop_event, 0) != WAIT_OBJECT_0)
 #endif
 
+#define DEBUG(msg, ...) if (g__debug) printf (msg, ## __VA_ARGS__);
 
 enum pkt_type
 {
@@ -66,6 +67,7 @@ struct thread_info
 };
 
 
+static bool g__debug = false;
 static ENetHost *client;
 
 
@@ -77,7 +79,9 @@ enet_work (WORK_PARAM param)
     while (WORK_COND)
     {
         ENetEvent event;
-        if (enet_host_service (client, &event, 100) > 0)
+        int ret = enet_host_service (client, &event, 100);
+        DEBUG ("ret=%d\n", ret);
+        if (ret > 0)
         {
             switch (event.type)
             {
@@ -199,13 +203,19 @@ main(int argc, char *argv[])
     int port = -1;
     bool connected = false;
 
-    if (argc != 2)
+    if (argc < 2)
     {
         usage ();
         return -1;
     }
 
     char *name = argv[1];
+    if (argc == 3 &&
+        argv[2] && argv[2][0] != '\0' &&
+        strcmp (argv[2], "-d") == 0)
+    {
+        g__debug = true;
+    }
 
     // TODO: sigaction instead of signal?
     if (signal (SIGINT, signal_handler) != SIG_ERR &&
@@ -240,7 +250,7 @@ main(int argc, char *argv[])
 #else
                     DWORD dummy;
                     info.thread = CreateThread(0, 0, enet_work, &info, 0, &dummy);
-                    info.stop_event = CreateEventA (NULL, true, false, "Stop event");
+                    info.stop_event = CreateEventA (NULL, true, false, NULL);
 #endif
 
                     int send_channel = 0;
