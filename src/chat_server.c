@@ -10,16 +10,6 @@
 
 static volatile sig_atomic_t G__running = false;
 
-
-static char *
-htop(unsigned int ip4, unsigned short port, char *buf, size_t len)
-{
-    uint8_t *octets = (uint8_t *) &ip4;
-    snprintf (buf, len, "%u.%u.%u.%u:%u",
-             octets[0], octets[1], octets[2], octets[3], port);
-    return buf;
-}
-
 static void
 signal_handler (int signal)
 {

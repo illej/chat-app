@@ -6,25 +6,13 @@
 
 #ifdef __linux__
 #include <pthread.h>
+#include <semaphore.h>
+#include <errno.h>
 #include <string.h>
 #endif
 
 #include "chat.h"
 
-/*
- * TODO: maybe we have the IO read in a worker thread, then
- *       when a line is read we put it in a buffer and signal
- *       the main thread (with a semaphore?) to wake up and
- *       send it in a packet
- *
- *       we are currently NOT thread-safe, accessing the client
- *       structure from both threads!!!
- *
- *       definitely feels like we need to be isolating threads,
- *       i.e., one for IO and one for ENet processing
- *
- *       non-blocking read()? and go full immediate-mode?
- * */
 #define SERVER_CONFIG           "server.cfg"
 #define OUTGOING_CONNECTION_MAX 1
 #define NUM_CHANNELS            2
@@ -34,16 +22,12 @@
 #ifdef __linux__
   #define WORK_RET   void *
   #define WORK_PARAM void *
-  #define WORK_COND  true
+  #define WORK_COND  (sem_trywait (&info->stop_semaphore) != 0 && errno == EAGAIN)
 #else
   #define WORK_RET   DWORD WINAPI
   #define WORK_PARAM LPVOID
   #define WORK_COND  (WaitForSingleObject (info->stop_event, 0) != WAIT_OBJECT_0)
 #endif
-
-#define array_len(A) (sizeof ((A)) / sizeof ((A)[0]))
-#define assert(expr) if (!(expr)) { printf ("Failure at %s():%d\n", __func__, __LINE__); *(int *) 0 = 0; }
-#define DEBUG(msg, ...) if (g__debug) printf (msg, ## __VA_ARGS__);
 
 struct entry
 {
@@ -65,6 +49,7 @@ struct thread_info
 {
 #ifdef __linux__
     pthread_t thread;
+    sem_t stop_semaphore;
 #else
     HANDLE thread;
     HANDLE stop_event;
@@ -265,32 +250,32 @@ read_server_config (char *ip4, int *port)
     return ok;
 }
 
-#ifdef __linux__
 static void
 stop_work (struct thread_info *info)
 {
-    if (pthread_kill (info->thread, 0) == 0 &&
-        pthread_cancel (info->thread) == 0 &&
-        pthread_join (info->thread, NULL) == 0)
+#ifdef __linux__
+    if (pthread_kill (info->thread, 0) != 0)
     {
-        /* all ok */
+        ERROR ("thread not running\n");
+    }
+    else if (sem_post (&info->stop_semaphore) != 0)
+    {
+        ERROR ("failed to signal semaphore\n");
+    }
+    else if (pthread_join (info->thread, NULL) != 0)
+    {
+        ERROR ("failed to join thread\n");
     }
     else
     {
-        DEBUG ("Failed to stop worker thread\n");
+        DEBUG ("stopped worker thread\n");
     }
-}
 #else
-static void
-stop_work (struct thread_info *info)
-{
-    DEBUG ("stopping thread\n");
-
     if (SetEvent (info->stop_event) != 0)
     {
         if (WaitForSingleObject (info->thread, 1000) != WAIT_OBJECT_0)
         {
-            DEBUG ("thread took too long to exit. Killing\n");
+            ERROR ("thread took too long to exit. Killing\n");
             TerminateThread (info->thread, 0);
         }
 
@@ -301,17 +286,14 @@ stop_work (struct thread_info *info)
     }
     else
     {
-        DEBUG ("Failed to set event\n");
+        ERROR ("Failed to set event\n");
     }
-}
 #endif
+}
 
 static void
 signal_handler (int unused)
 {
-    /* TODO: set a global variable (volatile?) here
-     * and then check if outside the while (fgets ())
-     * loop */
     fclose (stdin);
 }
 
@@ -327,7 +309,6 @@ main(int argc, char *argv[])
 {
     char ip[255] = {0};
     int port = -1;
-    bool connected = false;
 
     if (argc < 2)
     {
@@ -342,7 +323,6 @@ main(int argc, char *argv[])
     {
         g__debug = true;
     }
-
     // TODO: sigaction instead of signal?
     if (signal (SIGINT, signal_handler) != SIG_ERR &&
         read_server_config(ip, &port) &&
@@ -352,7 +332,7 @@ main(int argc, char *argv[])
                                    BANDWIDTH_IN, BANDWIDTH_OUT);
         if (client)
         {
-            printf ("Starting chat client. CTRL-D, CTRL-C, or \"!quit\" to quit.\n");
+            printf ("Starting chat client. CTRL-C or \"!quit\" to quit.\n");
 
             ENetAddress address;
             enet_address_set_host (&address, ip);
@@ -365,17 +345,16 @@ main(int argc, char *argv[])
                 if (enet_host_service (client, &event, 5000) > 0 &&
                     event.type == ENET_EVENT_TYPE_CONNECT)
                 {
-                    connected = true;
                     printf ("Connection to [%s:%d] succeeded.\n", ip, port);
 
-                    /* Create a worker thread to handle incoming server messages */
                     struct thread_info info = {0};
                     info.client = client;
                     info.peer = peer;
                     info.send_channel = 0;
                     snprintf (info.name, sizeof (info.name), "%s", name);
 #ifdef __linux__
-                    pthread_create(&info.thread, NULL, enet_work, NULL);
+                    sem_init (&info.stop_semaphore, 0, 0);
+                    pthread_create(&info.thread, NULL, enet_work, &info);
 #else
                     DWORD dummy;
                     info.stop_event = CreateEventA (NULL, true, false, NULL);
@@ -412,51 +391,22 @@ main(int argc, char *argv[])
                     /* We've exited out of the I/O read loop
                      * so clean up and quit */
                     stop_work (&info);
-#if 0
-                    printf ("sending disconnect to server\n");
-                    enet_peer_disconnect_later (peer, 0);
-
-                    /* Allow up to 3 seconds for the disconnect
-                     * to succeed and drop any received packets. */
-                    while (connected && enet_host_service (client, &event, 3000) > 0)
-                    {
-                        switch (event.type)
-                        {
-                            case ENET_EVENT_TYPE_RECEIVE:
-                                enet_packet_destroy (event.packet);
-                                break;
-                            case ENET_EVENT_TYPE_DISCONNECT:
-                                printf ("disconnect successful\n");
-                                connected = false;
-                                break;
-                        }
-                    }
-
-                    if (connected)
-                    {
-                        printf ("still connected - killing connection\n");
-
-                        /* If we've arrived here  the disconnect attempt
-                         * didn't succeed yet.  Force the connection down. */
-                        enet_peer_reset (peer);
-                    }
-#endif
                 }
                 else
                 {
                     enet_peer_reset (peer);
-                    printf ("Connection to [%s:%d] failed.\n", ip, port);
+                    ERROR ("Connection to [%s:%d] failed.\n", ip, port);
                 }
             }
             else
             {
-                printf("No available peers for initiating an ENet connection.\n");
+                ERROR ("No available peers for initiating an ENet connection.\n");
             }
             enet_host_destroy(client);
         }
         else
         {
-            printf ("An error occurred while trying to create an ENet client host.\n");
+            ERROR ("An error occurred while trying to create an ENet client host.\n");
         }
     }
     enet_deinitialize();
