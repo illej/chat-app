@@ -140,7 +140,7 @@ disconnect(ENetHost *client, ENetPeer *peer)
 {
     bool connected = true;
 
-    DEBUG ("sending disconnect to server\n");
+    debug ("sending disconnect to server\n");
     enet_peer_disconnect_later (peer, 0);
 
     /* Allow up to 3 seconds for the disconnect
@@ -154,7 +154,7 @@ disconnect(ENetHost *client, ENetPeer *peer)
                 enet_packet_destroy (event.packet);
                 break;
             case ENET_EVENT_TYPE_DISCONNECT:
-                DEBUG ("disconnect successful\n");
+                debug ("disconnect successful\n");
                 connected = false;
                 break;
         }
@@ -162,7 +162,7 @@ disconnect(ENetHost *client, ENetPeer *peer)
 
     if (connected)
     {
-        DEBUG ("still connected - killing connection\n");
+        debug ("still connected - killing connection\n");
 
         /* If we've arrived here  the disconnect attempt
          * didn't succeed yet.  Force the connection down. */
@@ -182,7 +182,7 @@ enet_work (WORK_PARAM param)
         ENetEvent event;
         if (enet_host_service (info->client, &event, 100) > 0)
         {
-            DEBUG ("received event=%d\n", event.type);
+            debug ("received event=%d\n", event.type);
 
             switch (event.type)
             {
@@ -201,7 +201,7 @@ enet_work (WORK_PARAM param)
 
         while (info->send_queue.completion_goal != info->send_queue.completion_count)
         {
-            DEBUG ("goal=%u, count=%u\n", info->send_queue.completion_goal, info->send_queue.completion_count);
+            debug ("goal=%u, count=%u\n", info->send_queue.completion_goal, info->send_queue.completion_count);
 
             char message[256];
             if (dequeue (&info->send_queue, message, sizeof (message)))
@@ -256,37 +256,37 @@ stop_work (struct thread_info *info)
 #ifdef __linux__
     if (pthread_kill (info->thread, 0) != 0)
     {
-        ERROR ("thread not running\n");
+        error ("thread not running\n");
     }
     else if (sem_post (&info->stop_semaphore) != 0)
     {
-        ERROR ("failed to signal semaphore\n");
+        error ("failed to signal semaphore\n");
     }
     else if (pthread_join (info->thread, NULL) != 0)
     {
-        ERROR ("failed to join thread\n");
+        error ("failed to join thread\n");
     }
     else
     {
-        DEBUG ("stopped worker thread\n");
+        debug ("stopped worker thread\n");
     }
 #else
     if (SetEvent (info->stop_event) != 0)
     {
         if (WaitForSingleObject (info->thread, 1000) != WAIT_OBJECT_0)
         {
-            ERROR ("thread took too long to exit. Killing\n");
+            error ("thread took too long to exit. Killing\n");
             TerminateThread (info->thread, 0);
         }
 
-        DEBUG ("thread finished. closing handles\n");
+        debug ("thread finished. closing handles\n");
 
         CloseHandle (info->thread);
         CloseHandle (info->stop_event);
     }
     else
     {
-        ERROR ("Failed to set event\n");
+        error ("Failed to set event\n");
     }
 #endif
 }
@@ -395,18 +395,18 @@ main(int argc, char *argv[])
                 else
                 {
                     enet_peer_reset (peer);
-                    ERROR ("Connection to [%s:%d] failed.\n", ip, port);
+                    error ("Connection to [%s:%d] failed.\n", ip, port);
                 }
             }
             else
             {
-                ERROR ("No available peers for initiating an ENet connection.\n");
+                error ("No available peers for initiating an ENet connection.\n");
             }
             enet_host_destroy(client);
         }
         else
         {
-            ERROR ("An error occurred while trying to create an ENet client host.\n");
+            error ("An error occurred while trying to create an ENet client host.\n");
         }
     }
     enet_deinitialize();

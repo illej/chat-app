@@ -1,11 +1,10 @@
 #ifndef _CHAT_PROTOCOL_H_
 #define _CHAT_PROTOCOL_H_
 
-#define DEBUG(msg, ...) if (g__debug) fprintf (stdout, msg, ## __VA_ARGS__);
-#undef ERROR
-#define ERROR(msg, ...) fprintf (stderr, msg, ## __VA_ARGS__)
+#define debug(msg, ...) if (g__debug) fprintf (stdout, msg, ## __VA_ARGS__);
+#define error(msg, ...) fprintf (stderr, msg, ## __VA_ARGS__)
 #define array_len(A) (sizeof ((A)) / sizeof ((A)[0]))
-#define assert(expr) if (!(expr)) { printf ("Failure at %s():%d\n", __func__, __LINE__); *(int *) 0 = 0; }
+#define assert(expr) if (!(expr)) { error ("Failure at %s():%d\n", __func__, __LINE__); *(int *) 0 = 0; }
 
 enum packet_type
 {
