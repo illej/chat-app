@@ -64,6 +64,7 @@ struct thread_info
 };
 
 static bool g__debug = false;
+static volatile sig_atomic_t g__running = false;
 
 static void
 enqueue (struct queue *queue, char *data)
@@ -240,6 +241,8 @@ read_server_config (char *ip4, int *port)
 static void
 stop_work (struct thread_info *info)
 {
+    debug ("signalling worker thread\n");
+
 #ifdef __linux__
     if (pthread_kill (info->thread, 0) != 0)
     {
@@ -279,9 +282,12 @@ stop_work (struct thread_info *info)
 }
 
 static void
-signal_handler (int unused)
+signal_handler (int signal)
 {
-    fclose (stdin);
+    if (signal == SIGINT)
+    {
+        g__running = false;
+    }
 }
 
 static void
@@ -289,6 +295,67 @@ usage (void)
 {
     printf ("Usage:\n\n");
     printf ("  client NAME [-d]\n\n");
+}
+
+static void
+input_loop (struct thread_info *info)
+{
+    char buf[256];
+    int len = 0;
+    g__running = true;
+
+    while (g__running)
+    {
+        switch (WaitForSingleObject (GetStdHandle (STD_INPUT_HANDLE), 100))
+        {
+            case WSA_WAIT_EVENT_0:
+            {
+                INPUT_RECORD record;
+                DWORD num_read;
+                if (!ReadConsoleInput (GetStdHandle (STD_INPUT_HANDLE),
+                                      &record, 1, &num_read))
+                {
+                    debug ("ReadConsoleInput() failed\n");
+                }
+                else if (record.EventType != KEY_EVENT)
+                {
+                    debug ("don't care about this event\n");
+                }
+                else if (!record.Event.KeyEvent.bKeyDown)
+                {
+                    debug ("only care about keydown\n");
+                }
+                else
+                {
+                    CHAR c = record.Event.KeyEvent.uChar.AsciiChar;
+                    if (c > 31 && c < 127)
+                    {
+                        snprintf (buf + len, sizeof (buf) - len, "%c", c);
+                        len += num_read;
+
+                        fprintf (stdout, "%c", c);
+                        debug ("buf: \"%s\" (len: %d)\n", buf, len);
+                    }
+                    else if (c == 13)
+                    {
+                        fprintf (stdout, "\r");
+
+                        enqueue (&info->send_queue, buf);
+                        memset (buf, 0, sizeof (buf));
+                        len = 0;
+                    }
+                    else
+                    {
+                        debug ("ignoring \"%c\"\n", c);
+                    }
+                }
+            }
+            default:
+            {
+                break;
+            }
+        }
+    }
 }
 
 int
@@ -348,6 +415,7 @@ main(int argc, char *argv[])
                     info.thread = CreateThread(0, 0, enet_work, &info, 0, &dummy);
 #endif
 
+#if __linux__
                     /* Block and read from input */
                     char line[255];
                     while (fgets (line, sizeof (line), stdin))
@@ -374,6 +442,10 @@ main(int argc, char *argv[])
 
                         memset (line, 0, sizeof (line));
                     }
+#else
+                    input_loop (&info);
+                    debug ("finished IO loop\n");
+#endif
 
                     /* We've exited out of the I/O read loop
                      * so clean up and quit */
