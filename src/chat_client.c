@@ -36,12 +36,10 @@ struct entry
 
 struct queue
 {
-    uint32_t volatile completion_goal;
-    uint32_t volatile completion_count;
+    uint32_t volatile read_index;
+    uint32_t volatile write_index;
 
-    uint32_t volatile next_entry_to_write;
-    uint32_t volatile next_entry_to_read;
-
+    uint32_t volatile entry_count;
     struct entry entries[32];
 };
 
@@ -70,52 +68,41 @@ static bool g__debug = false;
 static void
 enqueue (struct queue *queue, char *data)
 {
-    uint32_t new_next_entry_to_write = (queue->next_entry_to_write + 1) % array_len (queue->entries);
-    assert (new_next_entry_to_write != queue->next_entry_to_read);
+    uint32_t new_write_index = (queue->write_index + 1) % array_len (queue->entries);
+    assert (new_write_index != queue->read_index);
 
-    struct entry *entry = &queue->entries[queue->next_entry_to_write];
+    struct entry *entry = &queue->entries[queue->write_index];
     snprintf (entry->data, sizeof (entry->data), "%s", data);
-    ++queue->completion_goal;
 
+    ++queue->entry_count;
 #ifdef __linux__
     asm volatile ("" ::: "memory");
 #else
     _WriteBarrier ();
 #endif
-
-    queue->next_entry_to_write = new_next_entry_to_write;
+    queue->write_index = new_write_index;
 }
 
 static bool
 dequeue (struct queue *queue, char *buf, size_t len)
 {
     bool ok = false;
-    uint32_t original_next_entry_to_read = queue->next_entry_to_read;
-    uint32_t new_next_entry_to_read = (original_next_entry_to_read + 1) % array_len (queue->entries);
+    uint32_t original_read_index = queue->read_index;
+    uint32_t new_read_index = (original_read_index + 1) % array_len (queue->entries);
 
-    if (original_next_entry_to_read != queue->next_entry_to_write)
+    if (original_read_index != queue->write_index)
     {
-#ifdef __linux__
-        uint32_t index = __sync_val_compare_and_swap (&queue->next_entry_to_read,
-                                                      original_next_entry_to_read,
-                                                      new_next_entry_to_read);
-#else
-        uint32_t index = InterlockedCompareExchange ((LONG volatile *) &queue->next_entry_to_read,
-                                                    new_next_entry_to_read,
-                                                    original_next_entry_to_read);
-#endif
-        if (index == original_next_entry_to_read)
-        {
-            struct entry *entry = &queue->entries[index];
-            snprintf (buf, len, "%s", entry->data);
+        struct entry *entry = &queue->entries[original_read_index];
+        snprintf (buf, len, "%s", entry->data);
 
+        --queue->entry_count;
 #ifdef __linux__
-            __sync_fetch_and_add (&queue->completion_count, 1);
+        asm volatile ("" ::: "memory");
 #else
-            InterlockedIncrement ((LONG volatile *) &queue->completion_count);
+        _WriteBarrier ();
 #endif
-            ok = true;
-        }
+        queue->read_index = new_read_index;
+        ok = true;
     }
 
     return ok;
@@ -199,9 +186,12 @@ enet_work (WORK_PARAM param)
             }
         }
 
-        while (info->send_queue.completion_goal != info->send_queue.completion_count)
+        while (info->send_queue.entry_count > 0)
         {
-            debug ("goal=%u, count=%u\n", info->send_queue.completion_goal, info->send_queue.completion_count);
+            debug ("entry_count=%u (read=%u, write=%u)\n",
+                   info->send_queue.entry_count,
+                   info->send_queue.read_index,
+                   info->send_queue.write_index);
 
             char message[256];
             if (dequeue (&info->send_queue, message, sizeof (message)))
@@ -217,9 +207,6 @@ enet_work (WORK_PARAM param)
                 enet_peer_send (info->peer, info->send_channel, packet);
             }
         }
-
-        info->send_queue.completion_count = 0;
-        info->send_queue.completion_goal = 0;
     }
 
     disconnect (info->client, info->peer);
